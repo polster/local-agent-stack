@@ -4,10 +4,24 @@ Re-usable, distributable setup for running **local coding agents** on macOS:
 **MLX** (inference) + **OpenShell** (policy sandbox) + **opencode** (agent),
 with optional **BMAD** / **Superpowers** overlays.
 
-```
-macOS host                          OpenShell sandbox (Docker/Podman)
-  mlx-openai-server :8080  <----->  opencode  +  BMAD / skills
-  openshell gateway                 /workspace (your repo)
+```text
+                                 Request / tool loop
+  ┌───────────────────────────────────────────────────────────────────────┐
+  │ OpenShell sandbox (Docker/Podman)                                     │
+  │                                                                       │
+  │  ┌──────────────────────────────┐    reads/writes    ┌──────────────┐ │
+  │  │ opencode (+ optional BMAD /  │<------------------>| /workspace   │ │
+  │  │ skills overlays)             │                    │ (your repo)  │ │
+  │  └───────────────┬──────────────┘                    └──────────────┘ │
+  └──────────────────┼────────────────────────────────────────────────────┘
+                     │ OpenAI-compatible HTTP (`/v1/*`)
+                     ▼
+  ┌───────────────────────────────────────────────────────────────────────┐
+  │ macOS host                                                            │
+  │                                                                       │
+  │  mlx-openai-server (`${MLX_HOST}:${MLX_PORT:-8080}`)                  │
+  │  launched by `make mlx` / `host/mlx/start-mlx.sh`                     │
+  └───────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Status of this scaffold
