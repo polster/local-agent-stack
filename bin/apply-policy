@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source config.env
+
+SANDBOX_NAME="${SANDBOX_NAME:-local-agent}"
+PROFILE="${PROFILE:-dev-workspace}"
+POLICY="openshell/policies/${PROFILE}.yaml"
+[[ -f "$POLICY" ]] || { echo "no such profile: $PROFILE"; exit 1; }
+
+if [[ "${MLX_HOST}" == "auto" ]]; then
+  MLX_HOST=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo host.docker.internal)
+fi
+export MLX_HOST
+export MLX_PORT
+
+RENDERED_POLICY="build/policy.${SANDBOX_NAME}.${PROFILE}.yaml"
+mkdir -p build
+./bin/render-policy "$POLICY" "$RENDERED_POLICY"
+
+echo "==> applying policy ${RENDERED_POLICY} to ${SANDBOX_NAME}"
+openshell policy set "$SANDBOX_NAME" --policy "$RENDERED_POLICY" --wait

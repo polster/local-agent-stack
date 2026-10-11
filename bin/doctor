@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Preflight.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+source config.env
+
+ok(){ printf '  \033[32mok\033[0m   %s\n' "$1"; }
+bad(){ printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAILED=1; }
+warn(){ printf '  \033[33mwarn\033[0m %s\n' "$1"; }
+FAILED=0
+
+echo "== host =="
+[[ "$(uname -s)" == "Darwin" ]] && ok "macOS $(sw_vers -productVersion)" || bad "not macOS"
+[[ "$(uname -m)" == "arm64" ]] && ok "Apple Silicon" || bad "Apple Silicon required for MLX"
+
+RAM=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+if   (( RAM >= 64 )); then ok "${RAM} GB unified memory"
+elif (( RAM >= 32 )); then warn "${RAM} GB — 30B-class at 4-bit will be tight; shorten context"
+else                       warn "${RAM} GB — use a 4-9B model and short BMAD stories"
+fi
+
+echo "== runtime =="
+if ! command -v docker >/dev/null 2>&1; then
+  bad "docker CLI not found on PATH (non-interactive scripts do not load zsh aliases/functions); install/link a real 'docker' binary"
+  warn "PATH is: $PATH"
+elif docker info > /dev/null 2>&1; then
+  ok "docker $(docker version -f '{{.Server.Version}}')"
+else
+  bad "Docker not running (OpenShell needs it; kernel enforcement lives in the Linux VM)"
+fi
+
+echo "== openshell =="
+if command -v openshell >/dev/null 2>&1; then
+  ok "openshell $(openshell --version 2>/dev/null || echo '?')"
+  [[ "$OPENSHELL_VERSION" == "TODO" ]] && warn "config.env OPENSHELL_VERSION still TODO — pin it before distributing"
+  openshell sandbox list >/dev/null 2>&1 && ok "gateway reachable" || warn "gateway not reachable yet (first run bootstraps it)"
+else
+  bad "openshell not installed: curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh"
+fi
+
+echo "== inference =="
+LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "")
+[[ -n "$LAN_IP" ]] && ok "host LAN IP: $LAN_IP  (use as MLX_HOST if host.docker.internal does not resolve in-sandbox)" \
+                   || warn "could not resolve a LAN IP"
+if curl -fsS --max-time 2 "http://127.0.0.1:${MLX_PORT}/v1/models" >/dev/null 2>&1; then
+  ok "MLX /v1/models responding on :${MLX_PORT}"
+  curl -fsS "http://127.0.0.1:${MLX_PORT}/v1/models" | head -c 300; echo
+else
+  warn "no MLX server on :${MLX_PORT} — run: make mlx"
+fi
+
+echo
+(( FAILED )) && { echo "doctor: blocking problems above."; exit 1; }
+echo "doctor: ready."

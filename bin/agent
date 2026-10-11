@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# One command: ensure inference is up, then launch opencode in an OpenShell sandbox.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source config.env
+
+SANDBOX_NAME="${SANDBOX_NAME:-local-agent}"
+PROFILE="${PROFILE:-dev-workspace}"
+POLICY="openshell/policies/${PROFILE}.yaml"
+[[ -f "$POLICY" ]] || { echo "no such profile: $PROFILE"; exit 1; }
+STRICT_POLICY="${STRICT_POLICY:-0}"
+SANDBOX_IMAGE="${IMAGE:-${SANDBOX_IMAGE:-}}"
+RENDERED_POLICY="build/policy.${SANDBOX_NAME}.${PROFILE}.yaml"
+
+# 1. Resolve how the sandbox reaches the host.
+if [[ "${MLX_HOST}" == "auto" ]]; then
+  MLX_HOST=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo host.docker.internal)
+fi
+
+# If sandbox targets a host IP/hostname, MLX must listen beyond loopback.
+if [[ -z "${MLX_BIND_ALL:-}" ]]; then
+  if [[ "${MLX_HOST}" != "127.0.0.1" && "${MLX_HOST}" != "localhost" ]]; then
+    export MLX_BIND_ALL=1
+    echo "==> enabling MLX_BIND_ALL=1 (sandbox target is ${MLX_HOST})"
+  fi
+fi
+
+# 2. Inference up?
+if ! curl -fsS --max-time 2 "http://127.0.0.1:${MLX_PORT}/v1/models" >/dev/null 2>&1; then
+  echo "==> starting MLX server"
+  ./host/mlx/start-mlx.sh --background
+  for i in $(seq 1 60); do
+    curl -fsS --max-time 2 "http://127.0.0.1:${MLX_PORT}/v1/models" >/dev/null 2>&1 && break
+    sleep 2
+  done
+fi
+
+# Fail fast if sandbox target is not actually reachable.
+if [[ "${MLX_HOST}" != "127.0.0.1" && "${MLX_HOST}" != "localhost" ]]; then
+  if ! curl -fsS --max-time 2 "http://${MLX_HOST}:${MLX_PORT}/v1/models" >/dev/null 2>&1; then
+    echo "!! MLX is up on localhost, but not reachable at ${MLX_HOST}:${MLX_PORT}."
+    echo "!! Likely cause: mlx-openai-server is bound to 127.0.0.1 only."
+    echo "!! Fix: restart MLX with MLX_BIND_ALL=1 (or run: MLX_BIND_ALL=1 make mlx)."
+    exit 1
+  fi
+fi
+
+export MLX_BASE_URL="http://${MLX_HOST}:${MLX_PORT}/v1"
+export MLX_HOST
+export MLX_PORT
+echo "==> sandbox will reach inference at ${MLX_BASE_URL}"
+echo "==> using policy-managed network egress for MLX access (no OpenShell inference route)"
+
+mkdir -p build
+./bin/render-policy "$POLICY" "$RENDERED_POLICY"
+
+# 3. Create the sandbox in detached mode with a stable long-lived process.
+SANDBOX_BOOT_CMD='exec sleep infinity'
+CREATE_ARGS=(sandbox create --name "$SANDBOX_NAME" --detach --env "MLX_BASE_URL=${MLX_BASE_URL}" --policy "$RENDERED_POLICY")
+if [[ -n "${SANDBOX_IMAGE}" ]]; then
+  echo "==> sandbox image: ${SANDBOX_IMAGE}"
+  CREATE_ARGS+=(--from "$SANDBOX_IMAGE")
+fi
+if ! openshell "${CREATE_ARGS[@]}" -- sh -lc "$SANDBOX_BOOT_CMD"; then
+  if [[ "$STRICT_POLICY" == "1" ]]; then
+    echo "!! sandbox create with policy failed and STRICT_POLICY=1; aborting"
+    exit 1
+  fi
+  echo "!! sandbox create with policy failed: ${RENDERED_POLICY}"
+  echo "!! retrying without custom policy; set STRICT_POLICY=1 to make this fatal"
+  if [[ -n "${SANDBOX_IMAGE}" ]]; then
+    openshell sandbox create --name "$SANDBOX_NAME" --from "$SANDBOX_IMAGE" --detach --env "MLX_BASE_URL=${MLX_BASE_URL}" -- sh -lc "$SANDBOX_BOOT_CMD"
+  else
+    openshell sandbox create --name "$SANDBOX_NAME" --detach --env "MLX_BASE_URL=${MLX_BASE_URL}" -- sh -lc "$SANDBOX_BOOT_CMD"
+  fi
+fi
+
+if ! openshell sandbox exec -n "$SANDBOX_NAME" -- sh -lc 'command -v opencode >/dev/null 2>&1'; then
+  echo "!! opencode is not present in this sandbox image."
+  echo "!! Build or use an IMAGE that contains opencode, then rerun make sandbox."
+else
+  echo "==> opencode detected in sandbox image"
+fi
+
+echo "==> connect: openshell sandbox connect $SANDBOX_NAME"
+echo "==> watch:   openshell term"

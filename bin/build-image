@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source config.env
+
+IMAGE_TAG="${IMAGE_TAG:-local-agent-stack:opencode}"
+BASE_IMAGE="${BASE_IMAGE:-${OPENSHELL_BASE_IMAGE}}"
+
+if [[ -z "${BASE_IMAGE}" || "${BASE_IMAGE}" == "TODO" ]]; then
+  echo "set BASE_IMAGE=<openshell base image ref> or OPENSHELL_BASE_IMAGE in config.env"
+  exit 1
+fi
+
+if command -v podman >/dev/null 2>&1; then
+  ENGINE="podman"
+elif command -v docker >/dev/null 2>&1; then
+  ENGINE="docker"
+else
+  echo "no container engine found (need podman or docker)"
+  exit 1
+fi
+
+echo "==> building ${IMAGE_TAG} with ${ENGINE}"
+${ENGINE} build -f image/Dockerfile \
+  --build-arg BASE="${BASE_IMAGE}" \
+  --build-arg OPENCODE_VERSION="${OPENCODE_VERSION}" \
+  --tag "${IMAGE_TAG}" \
+  .
+
+echo "==> built image: ${IMAGE_TAG}"
+echo "==> use with: IMAGE=${IMAGE_TAG} make sandbox"
+echo "==> optional default: set SANDBOX_IMAGE=${IMAGE_TAG} in config.env"

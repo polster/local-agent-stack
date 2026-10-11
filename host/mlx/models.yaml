@@ -1,0 +1,24 @@
+# Approved models. Mirror the weights to an internal artifact store rather than
+# having 30 devs pull from Hugging Face. RAM floors assume 4-bit + ~32k context;
+# BMAD multi-persona prompts push this up, so treat them as minimums.
+#
+# Hard rule: the model must emit tool calls. Reasoning-only distills do not and
+# will fail silently inside an agent loop.
+
+models:
+  - alias: local-coder
+    repo: mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit
+    quant: 4bit
+    ram_floor_gb: 48
+    tool_call_parser: qwen3_coder
+    notes: Default. MoE, good tool-call fidelity. Needs 64 GB for long BMAD stories.
+
+  - alias: local-coder-small
+    repo: mlx-community/Qwen2.5-Coder-7B-Instruct-4bit
+    quant: 4bit
+    ram_floor_gb: 10
+    tool_call_parser: qwen3_coder
+    notes: For 16-24 GB machines. Short stories only; expect more retries.
+
+  # Validate before adding: run a scripted tool-calling smoke test, not vibes.
+  # candidates: Devstral-Small / gpt-oss-20b MLX conversions

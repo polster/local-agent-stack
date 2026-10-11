@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INPUT="${1:-}"
+OUTPUT="${2:-}"
+
+[[ -n "$INPUT" && -n "$OUTPUT" ]] || {
+  echo "usage: $0 <input-policy.yaml> <output-policy.yaml>"
+  exit 1
+}
+
+python3 - "$INPUT" "$OUTPUT" <<'PY'
+import os
+import pathlib
+import sys
+
+src = pathlib.Path(sys.argv[1])
+dst = pathlib.Path(sys.argv[2])
+
+mlx_host = os.environ.get("MLX_HOST", "")
+mlx_port = os.environ.get("MLX_PORT", "")
+
+text = src.read_text()
+text = text.replace("${MLX_HOST}", mlx_host)
+text = text.replace("${MLX_PORT}", mlx_port)
+
+dst.parent.mkdir(parents=True, exist_ok=True)
+dst.write_text(text)
+PY
