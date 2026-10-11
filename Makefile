@@ -2,6 +2,8 @@ SHELL := /bin/bash
 include config.env
 export
 
+PRE_COMMIT ?= pre-commit
+
 .PHONY: doctor
 doctor:          ## preflight checks
 	@./bin/doctor
@@ -37,3 +39,18 @@ logs:
 .PHONY: clean
 clean:
 	@rm -rf build
+
+.PHONY: hooks-install
+hooks-install:   ## install pre-commit git hook and hook environments
+	@command -v $(PRE_COMMIT) >/dev/null 2>&1 || { echo "pre-commit not found; install it first (for example: brew install pre-commit)"; exit 1; }
+	@$(PRE_COMMIT) install --install-hooks --hook-type pre-commit
+
+.PHONY: hooks-run
+hooks-run:       ## run pre-commit hooks against all tracked files
+	@command -v $(PRE_COMMIT) >/dev/null 2>&1 || { echo "pre-commit not found; install it first (for example: brew install pre-commit)"; exit 1; }
+	@$(PRE_COMMIT) run --all-files --show-diff-on-failure
+
+.PHONY: hooks-remove
+hooks-remove:    ## uninstall pre-commit git hook
+	@command -v $(PRE_COMMIT) >/dev/null 2>&1 || { echo "pre-commit not found; install it first (for example: brew install pre-commit)"; exit 1; }
+	@$(PRE_COMMIT) uninstall --hook-type pre-commit

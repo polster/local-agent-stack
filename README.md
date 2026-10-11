@@ -54,6 +54,17 @@ make sandbox       # create an OpenShell sandbox running opencode
 2. `SANDBOX_IMAGE` from env/`config.env` (default)
 3. no `--from` (OpenShell default image)
 
+## Pre-commit hooks
+
+This repo includes a `pre-commit` configuration for YAML and shell linting plus
+baseline whitespace/conflict checks.
+
+```bash
+make hooks-install   # install pre-commit hook + hook environments
+make hooks-run       # run all hooks on all tracked files
+make hooks-remove    # uninstall the pre-commit hook
+```
+
 ## Layout
 
 ```
